@@ -28,15 +28,19 @@ const DONE = /you solved|solved in|you won|you did it|puzzle solved|crushing it|
 // The top 3 get a medal picture instead of a number, so look at the row's
 // images and labels too, and fall back to its position in the list.
 const MEDAL = /\b(?:rank|place|position|medal)\D{0,12}([1-3])\b|\b([1-3])(?:st|nd|rd)\b|(gold|first)|(silver|second)|(bronze|third)/i;
+// Your row's markup (minus image URLs), kept so the popup can copy it when a
+// rank isn't read right.
+let rowHtml = "";
 function yourRow() {
   const hit = document.evaluate("//*[normalize-space(text())='You']", document.body, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-  if (!hit) return {};
+  if (!hit) { rowHtml = "(no row with the text \"You\" found)"; return {}; }
   let row = hit;
   for (let k = 0; k < 8 && row.parentElement; k++) {
     row = row.parentElement;
     if (row.matches("li, [role='listitem'], tr")) break;
     if (k >= 2 && /(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
   }
+  rowHtml = row.outerHTML.replace(/\s(?:src|srcset|href|style|data-[\w-]+)="[^"]*"/g, "").slice(0, 3000);
   const out = {};
   const text = row.innerText || "";
 
@@ -238,7 +242,7 @@ async function check() {
   if (sig !== lastScreen) {
     lastScreen = sig;
     const { screens = {} } = await chrome.storage.local.get("screens");
-    screens[game] = { at: Date.now(), text: snap };
+    screens[game] = { at: Date.now(), text: snap, row: rowHtml, parsed };
     await chrome.storage.local.set({ screens });
   }
 }

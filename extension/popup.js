@@ -14,7 +14,7 @@ chrome.storage.local.get("screens", ({ screens = {} }) => {
     const btn = document.createElement("button");
     btn.textContent = "Copy";
     btn.onclick = async () => {
-      try { await navigator.clipboard.writeText(`${NAMES[id]} results screen:\n\n${s.text}`); btn.textContent = "Copied"; }
+      try { await navigator.clipboard.writeText(`${NAMES[id]} results screen (extension ${chrome.runtime.getManifest().version}):\n\nRead: ${JSON.stringify(s.parsed || {})}\n\nYour row:\n${s.row || "(not captured)"}\n\nScreen text:\n${s.text}`); btn.textContent = "Copied"; }
       catch { btn.textContent = "Couldn't copy"; }
     };
     li.append(btn);
