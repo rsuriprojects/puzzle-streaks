@@ -1,8 +1,13 @@
 // Runs on LinkedIn's game pages. Watches for the results screen and saves
 // what it shows: your time (or guesses), your rank among connections and
-// LinkedIn's streak count. Everything stays in chrome.storage.local.
+// LinkedIn's streak count. On the games hub it marks every game you've
+// solved today. Everything stays in chrome.storage.local.
 
-const GAMES = ["queens", "tango", "zip", "mini-sudoku", "crossclimb", "pinpoint"];
+const NAMES = {
+  "queens": "Queens", "zip": "Zip", "pinpoint": "Pinpoint", "wend": "Wend", "patches": "Patches",
+  "tango": "Tango", "mini-sudoku": "Mini Sudoku", "crossclimb": "Crossclimb",
+};
+const GAMES = Object.keys(NAMES);
 
 function gameFromUrl() {
   const urls = [location.href];
@@ -17,11 +22,14 @@ function gameFromUrl() {
 
 const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const DONE = /you solved|solved in|you won|you did it|puzzle solved|come back tomorrow|next puzzle in|see you tomorrow/i;
+const DONE = /you solved|solved in|you won|you did it|puzzle solved|crushing it|come back tomorrow|next puzzle in|see you tomorrow/i;
 
 function parse(game, text) {
   if (!DONE.test(text)) return null;
-  const out = {};
+  const out = { solved: true };
+
+  const num = new RegExp(`${NAMES[game]}\\s*(?:no\\.\\s*)?#\\s*(\\d+)`, "i").exec(text);
+  if (num) out.puzzle = Number(num[1]);
 
   if (game === "pinpoint") {
     const g = /(?:solved in|in)\s+(\d)\s+guess/i.exec(text) || /(\d)\s*\/\s*5\b/.exec(text);
@@ -52,39 +60,68 @@ function parse(game, text) {
       if (r) { out.rank = Number(r[1]); break; }
     }
   }
-
-  if (out.secs == null && out.guesses == null) return null;
   return out;
 }
 
-let lastSaved = "";
+// The hub lists each game as "Queens #917" with a status line under it,
+// such as "You're crushing it!" once you've solved today's puzzle.
+function parseHub(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const byName = Object.fromEntries(GAMES.map((id) => [NAMES[id].toLowerCase(), id]));
+  const found = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^(.+?)\s*#\s*(\d+)$/.exec(lines[i]);
+    const id = m && byName[m[1].toLowerCase()];
+    if (!id) continue;
+    const status = lines.slice(i + 1, i + 3).join(" ");
+    if (/crushing it|solved|completed|you did it|nice work|great job|well done/i.test(status)) {
+      found.push({ game: id, data: { solved: true, puzzle: Number(m[2]) } });
+    }
+  }
+  return found;
+}
+
+async function save(items) {
+  const date = dayKey(new Date());
+  const { results = {} } = await chrome.storage.local.get("results");
+  let changed = false;
+  for (const { game, data } of items) {
+    const key = `${date}_${game}`;
+    const prev = results[key] || {};
+    const next = { ...prev, ...data, game, date };
+    if (Object.keys(next).some((k) => next[k] !== prev[k])) {
+      results[key] = { ...next, savedAt: Date.now() };
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ results });
+  return changed;
+}
+
 let announced = false;
 async function check() {
-  const game = gameFromUrl();
-  if (!game || !document.body) return;
+  if (!document.body) return;
   const text = document.body.innerText || "";
-  const parsed = parse(game, text);
+  const game = gameFromUrl();
 
-  const seen = { game, at: Date.now(), url: location.href, parsed };
-  if (!parsed) {
-    const done = DONE.test(text);
-    if (done) seen.snippet = text.slice(0, 800);
-    // Only record "watching" once per page, not on every timer tick.
-    if (done || !announced) { announced = true; await chrome.storage.local.set({ lastSeen: seen }); }
+  if (!game) {
+    const hub = parseHub(text);
+    if (hub.length && await save(hub)) {
+      await chrome.storage.local.set({ lastSeen: { game: "games hub", at: Date.now(), parsed: hub.map((h) => h.game) } });
+    }
     return;
   }
 
-  const date = dayKey(new Date());
-  const key = `${date}_${game}`;
-  const { results = {} } = await chrome.storage.local.get("results");
-  const prev = results[key] || {};
-  const next = { ...prev, ...parsed, game, date };
-  const sig = JSON.stringify({ ...next, savedAt: 0 });
-  if (sig === lastSaved || sig === JSON.stringify({ ...prev, savedAt: 0 })) return;
-  next.savedAt = Date.now();
-  results[key] = next;
-  lastSaved = sig;
-  await chrome.storage.local.set({ results, lastSeen: seen });
+  const parsed = parse(game, text);
+  if (!parsed) {
+    // Only record "watching" once per page, not on every timer tick.
+    if (!announced) { announced = true; await chrome.storage.local.set({ lastSeen: { game, at: Date.now() } }); }
+    return;
+  }
+  const seen = { game, at: Date.now(), parsed };
+  // Solved but no time or guesses found: keep the screen text so the reader can be fixed.
+  if (parsed.secs == null && parsed.guesses == null) seen.snippet = text.slice(0, 800);
+  if (await save([{ game, data: parsed }])) await chrome.storage.local.set({ lastSeen: seen });
 }
 
 let timer = null;

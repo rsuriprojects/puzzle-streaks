@@ -12,6 +12,8 @@
   --g-sudoku: #3d8c69;
   --g-crossclimb: #3a7cc0;
   --g-pinpoint: #c25796;
+  --g-wend: #2f9aa0;
+  --g-patches: #a8892c;
   --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
@@ -48,6 +50,10 @@ a { color: inherit; }
 .streak.risk, .streak.risk b { color: var(--warn); }
 .meta { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 3px 0 0 20px; font-size: 13px; color: var(--muted); }
 .meta b { font-family: var(--mono); color: var(--fg); font-weight: 500; }
+
+.others { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+.others a { color: var(--muted); text-underline-offset: 3px; }
+.others a:hover { color: var(--fg); }
 
 h2 { font-size: 15px; font-weight: 600; margin: 40px 0 12px; }
 #setup p, #setup ol { color: var(--muted); max-width: 60ch; }
