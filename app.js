@@ -63,6 +63,8 @@ function details(g, e, s, bonuses) {
         : diff < 0 ? ` <span class="sub">${-diff}s slower than today's average (${fmtTime(e.avg)})</span>`
         : ` <span class="sub">right on today's average</span>`;
     }
+    if (g.kind === "guesses" && e.avg) time += ` <span class="sub">today's average is ${esc(e.avg)}</span>`;
+    if (e.newBest) time += ` <span class="best">New personal best</span>`;
     rows.push([g.kind === "guesses" ? "Result" : "Time", time]);
     const played = e.played ? ` <span class="sub">${esc(e.played)} ${e.played === 1 ? "connection" : "connections"} played today</span>` : "";
     rows.push(["Connections", e.rank ? `<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""}${played}` : `<span class="sub">Rank not read yet</span>${played}`]);

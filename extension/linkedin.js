@@ -32,19 +32,34 @@ const MEDAL = /\b(?:rank|place|position|medal)[\s_-]*(?:#|no\.?\s*)?([1-3])\b|\b
 const TIME = /(?<![\d:])(\d{1,2}):([0-5]\d)(?![:\d])/;
 const timeOf = (el) => { const m = TIME.exec(el.innerText || ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 const numOf = (el) => { const m = /^\s*#?(\d{1,3})\s*\n/.exec(el.innerText || ""); return m ? Number(m[1]) : null; };
+// A row's score: its time, or for Pinpoint the number of guesses on its last line.
+const scoreOf = (el) => {
+  const t = timeOf(el);
+  if (t != null) return t;
+  const lines = (el.innerText || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const m = lines.length > 1 && /^(\d{1,2})$/.exec(lines[lines.length - 1]);
+  return m ? Number(m[1]) : null;
+};
 
 // Your row's markup (minus image URLs), kept so the popup can copy it when a
 // rank isn't read right.
 let rowHtml = "";
 
 function rowFor(hit) {
-  // Climb to the smallest box that also holds a time (or guesses): that's the row.
+  // Climb to the box that sits next to other rows like it (same tag and
+  // class, several lines of text each). Rows aren't list items here, and
+  // Pinpoint rows have no time to go by.
   let row = hit;
-  for (let k = 0; k < 8 && row.parentElement; k++) {
+  for (let k = 0; k < 10 && row.parentElement; k++) {
     row = row.parentElement;
-    if (row.matches("li, [role='listitem'], tr")) break;
-    if (/(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
+    if (row.matches("li, [role='listitem'], tr")) return row;
+    const sibs = [...(row.parentElement?.children || [])].filter((el) => el !== row
+      && el.tagName === row.tagName && el.className === row.className);
+    if (scoreOf(row) != null && sibs.some((el) => (el.innerText || "").trim().includes("\n") && scoreOf(el) != null)) return row;
   }
+  // No sibling rows (you're the only player): climb to the box holding your score.
+  row = hit;
+  for (let k = 0; k < 8 && row.parentElement && scoreOf(row) == null; k++) row = row.parentElement;
   return row;
 }
 
@@ -61,21 +76,21 @@ function rankOf(row, played) {
     if (m) return Number(m[1] || m[2]) || (m[3] ? 1 : m[4] ? 2 : 3);
   }
 
-  const mine = timeOf(row);
+  const mine = scoreOf(row);
   if (mine == null || !row.parentElement) return null;
-  const rows = [...row.parentElement.children].filter((el) => timeOf(el) != null);
+  const rows = [...row.parentElement.children].filter((el) => scoreOf(el) != null);
   const i = rows.indexOf(row);
 
-  // Everyone is listed: your rank is 1 + the number of different faster times.
+  // Everyone is listed: your rank is 1 + the number of different better scores.
   if (played && rows.length === played + 1) {
-    return new Set(rows.map(timeOf).filter((t) => t < mine)).size + 1;
+    return new Set(rows.map(scoreOf).filter((t) => t < mine)).size + 1;
   }
   // The row under you is numbered: "4 Maahi 0:11" under your 0:10 makes you 3.
   const next = rows[i + 1];
-  if (next && numOf(next)) return timeOf(next) > mine ? numOf(next) - 1 : numOf(next);
+  if (next && numOf(next)) return scoreOf(next) > mine ? numOf(next) - 1 : numOf(next);
   // The row above you is numbered.
   const prev = rows[i - 1];
-  if (prev && numOf(prev)) return timeOf(prev) < mine ? numOf(prev) + 1 : numOf(prev);
+  if (prev && numOf(prev)) return scoreOf(prev) < mine ? numOf(prev) + 1 : numOf(prev);
   return null;
 }
 
@@ -102,6 +117,8 @@ function yourRow() {
   const text = row.innerText || "";
   const secs = timeOf(row);
   if (secs != null) out.secs = secs;
+  const score = scoreOf(row);
+  if (score != null && secs == null) out.guesses = score;
 
   // Badges under your name: "🔥 101-day streak!", "No hints & no redraws!"...
   // LinkedIn repeats each one with a template copy after it, so keep the
@@ -128,10 +145,15 @@ function parse(game, text, you = {}) {
   if (num) out.puzzle = Number(num[1]);
 
   if (game === "pinpoint") {
-    const g = /(?:solved in|got it in|in)\s+(\d)\s+(?:guess|clue|tr(?:y|ies))/i.exec(text)
-      || /\b(\d)\s+(?:guesses|guess|clues|clue|tries)\b/i.exec(text)
-      || /(\d)\s*\/\s*5\b/.exec(text);
+    // "Solved in 1" on the results card, else the number on your leaderboard row.
+    const g = /solved in\s+(\d)\b/i.exec(text)
+      || /(?:got it in|in)\s+(\d)\s+(?:guess|clue|tr(?:y|ies))/i.exec(text)
+      || /\b(\d)\s+(?:guesses|guess|clues|clue|tries)\b/i.exec(text);
     if (g) out.guesses = Number(g[1]);
+    else if (you.guesses != null) out.guesses = you.guesses;
+    // "Today's avg: 2"
+    const ga = /avg:?\s*(\d+(?:\.\d+)?)(?![:\d])/i.exec(text);
+    if (ga) out.avg = Number(ga[1]);
   } else {
     // A time like 1:24 that isn't part of a countdown like 14:22:05,
     // and isn't the "Today's avg: 0:16" line.
@@ -153,6 +175,10 @@ function parse(game, text, you = {}) {
   const streak = /(\d+)[\s-]*day\s+win\s+streak/i.exec(text);
   if (streak) out.streak = Number(streak[1]);
   else if (you.streak) out.streak = you.streak;
+  else if (/new streak/i.test(text)) out.streak = 1; // "New streak / Game on!"
+
+  // "Your best score yet!" on the time card.
+  if (/your best score yet/i.test(text)) out.newBest = true;
   if (you.badges) out.badges = you.badges;
 
   // "Smarter than 75% of CEOs", "Smarter than 50% of Rishis". The page also
@@ -182,7 +208,7 @@ function parse(game, text, you = {}) {
   if (played) out.played = Number(played[1]);
 
   // "Today's avg: 0:16"
-  const avg = /avg:?\s*(\d{1,2}):([0-5]\d)(?![:\d])/i.exec(text);
+  const avg = game !== "pinpoint" && /avg:?\s*(\d{1,2}):([0-5]\d)(?![:\d])/i.exec(text);
   if (avg) out.avg = Number(avg[1]) * 60 + Number(avg[2]);
 
   const rankOf = /#?(\d+)\s+(?:of|out of)\s+(\d+)\s+(?:connections|players|people)/i.exec(text);
