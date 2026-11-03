@@ -298,6 +298,7 @@ async function saveBonus(items) {
 }
 
 let announced = false;
+let hubAnnounced = false;
 let lastScreen = "";
 async function check() {
   if (!document.body) return;
@@ -311,6 +312,12 @@ async function check() {
     const hub = parseHub(text);
     if (hub.length && await save(hub)) {
       await chrome.storage.local.set({ lastSeen: { game: "games hub", at: Date.now(), parsed: hub.map((h) => h.game) } });
+    }
+    // Tell the background sync the games list has loaded, so it knows which
+    // games are solved today and only opens those.
+    if (!hubAnnounced && /\b(?:Queens|Zip|Tango|Pinpoint)\s*#\s*\d+/.test(text)) {
+      hubAnnounced = true;
+      await chrome.storage.local.set({ hubSeen: Date.now() });
     }
     return;
   }

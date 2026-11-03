@@ -42,3 +42,28 @@ chrome.storage.local.get(["results", "lastSeen"], ({ results = {}, lastSeen }) =
     last.textContent = `Watching ${lastSeen.game} (${when}). Waiting for the results screen.`;
   }
 });
+
+// Sync: reads games you played anywhere (like your phone) from LinkedIn.
+function syncText(s) {
+  if (!s) return "Syncs every 2 hours while Chrome is open.";
+  const when = new Date(s.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (s.state === "running") return "Syncing…";
+  if (s.state === "error") return `Sync failed at ${when}. Try again.`;
+  return `Synced at ${when}. ${s.played} played today.`;
+}
+const syncBtn = document.getElementById("sync-now");
+const syncStatus = document.getElementById("sync-status");
+chrome.storage.local.get("sync", ({ sync }) => {
+  syncStatus.textContent = syncText(sync);
+  syncBtn.disabled = sync?.state === "running" && Date.now() - sync.at < 90000;
+});
+chrome.storage.onChanged.addListener((c) => {
+  if (!c.sync) return;
+  syncStatus.textContent = syncText(c.sync.newValue);
+  syncBtn.disabled = c.sync.newValue?.state === "running";
+});
+syncBtn.addEventListener("click", () => {
+  syncBtn.disabled = true;
+  syncStatus.textContent = "Syncing…";
+  chrome.runtime.sendMessage({ type: "sync-now" });
+});

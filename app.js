@@ -18,6 +18,7 @@ let results = {};
 let bonus = null;
 let connected = false;
 let lastSync = null;
+let sync = null;
 let open = new Set();
 try { results = JSON.parse(localStorage.getItem("results") || "{}"); } catch {}
 try { bonus = JSON.parse(localStorage.getItem("bonus") || "null"); } catch {}
@@ -142,7 +143,11 @@ function render() {
   const st = $("status");
   if (connected) {
     st.className = "status";
-    st.innerHTML = `<span class="live"></span>Logging automatically${lastSync ? `, last result saved ${esc(ago(lastSync))}` : ""}`;
+    // The extension also syncs games played on other devices (like your phone).
+    const synced = sync?.state === "running" ? "syncing now"
+      : sync?.state === "done" ? `synced with LinkedIn ${esc(ago(sync.at))}`
+      : lastSync ? `last result saved ${esc(ago(lastSync))}` : "";
+    st.innerHTML = `<span class="live"></span>Logging automatically${synced ? `, ${synced}` : ""}`;
   } else {
     st.className = "status off";
     st.textContent = "Extension not found, so new games won't be logged yet.";
@@ -188,6 +193,7 @@ window.addEventListener("message", (ev) => {
   connected = true;
   results = ev.data.results || {};
   bonus = ev.data.bonus || null;
+  sync = ev.data.sync || null;
   lastSync = Math.max(0, ...Object.values(results).map((e) => e.savedAt || 0)) || null;
   try {
     localStorage.setItem("results", JSON.stringify(results));
