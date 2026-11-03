@@ -32,7 +32,9 @@ function parse(game, text) {
   if (num) out.puzzle = Number(num[1]);
 
   if (game === "pinpoint") {
-    const g = /(?:solved in|in)\s+(\d)\s+guess/i.exec(text) || /(\d)\s*\/\s*5\b/.exec(text);
+    const g = /(?:solved in|got it in|in)\s+(\d)\s+(?:guess|clue|tr(?:y|ies))/i.exec(text)
+      || /\b(\d)\s+(?:guesses|guess|clues|clue|tries)\b/i.exec(text)
+      || /(\d)\s*\/\s*5\b/.exec(text);
     if (g) out.guesses = Number(g[1]);
   } else {
     // A time like 1:24 that isn't part of a countdown like 14:22:05,
@@ -62,14 +64,22 @@ function parse(game, text) {
   if (avg) out.avg = Number(avg[1]) * 60 + Number(avg[2]);
 
   const rankOf = /#?(\d+)\s+(?:of|out of)\s+(\d+)\s+(?:connections|players|people)/i.exec(text);
+  const rankSaid = /(?:you(?:'|’)?re|you are|ranked|rank)\s*#\s*(\d+)/i.exec(text);
   if (rankOf) { out.rank = Number(rankOf[1]); out.of = Number(rankOf[2]); }
+  else if (rankSaid) out.rank = Number(rankSaid[1]);
   else {
-    // Leaderboard rows read like "3 / You / 0:45": find "You" and the number above it.
+    // Leaderboard rows read like "3 / You / 0:45": find your row and the
+    // number just above it (or at the start of the same line).
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const i = lines.findIndex((l) => /^(you|\(you\)|.*\(you\))$/i.test(l));
-    for (let j = i - 1; i > 0 && j >= Math.max(0, i - 3); j--) {
-      const r = /^#?(\d{1,3})(?:st|nd|rd|th)?$/i.exec(lines[j]);
-      if (r) { out.rank = Number(r[1]); break; }
+    const isYou = (l) => /^you(?![’'a-z])/i.test(l) || /\(you\)/i.test(l);
+    const i = lines.findIndex(isYou);
+    if (i >= 0) {
+      const same = /^#?(\d{1,3})(?:st|nd|rd|th)?[\s.)]+/.exec(lines[i]);
+      if (same) out.rank = Number(same[1]);
+      for (let j = i - 1; !out.rank && j >= Math.max(0, i - 5); j--) {
+        const r = /^#?(\d{1,3})(?:st|nd|rd|th)?\.?$/i.exec(lines[j]);
+        if (r) out.rank = Number(r[1]);
+      }
     }
   }
   return out;
@@ -138,6 +148,7 @@ async function saveBonus(items) {
 }
 
 let announced = false;
+let lastScreen = "";
 async function check() {
   if (!document.body) return;
   const text = document.body.innerText || "";
@@ -164,6 +175,17 @@ async function check() {
   // Solved but no time or guesses found: keep the screen text so the reader can be fixed.
   if (parsed.secs == null && parsed.guesses == null) seen.snippet = text.slice(0, 800);
   if (await save([{ game, data: parsed }])) await chrome.storage.local.set({ lastSeen: seen });
+
+  // Keep the latest results-screen text per game (only in this browser) so
+  // the popup can copy it when something isn't read right.
+  const snap = text.slice(0, 4000);
+  const sig = snap.replace(/\d+:\d{2}:\d{2}/g, ""); // ignore the ticking countdown
+  if (sig !== lastScreen) {
+    lastScreen = sig;
+    const { screens = {} } = await chrome.storage.local.get("screens");
+    screens[game] = { at: Date.now(), text: snap };
+    await chrome.storage.local.set({ screens });
+  }
 }
 
 // When the extension is reloaded or updated, scripts already running in open

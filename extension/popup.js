@@ -2,6 +2,27 @@ const MINE = ["queens", "zip", "pinpoint", "wend", "patches", "tango", "mini-sud
 const d = new Date();
 const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+const NAMES = { "queens": "Queens", "zip": "Zip", "pinpoint": "Pinpoint", "wend": "Wend", "patches": "Patches", "tango": "Tango", "mini-sudoku": "Mini Sudoku", "crossclimb": "Crossclimb" };
+
+chrome.storage.local.get("screens", ({ screens = {} }) => {
+  const list = document.getElementById("screen-list");
+  for (const id of MINE) {
+    const s = screens[id];
+    if (!s) continue;
+    const li = document.createElement("li");
+    li.textContent = NAMES[id];
+    const btn = document.createElement("button");
+    btn.textContent = "Copy";
+    btn.onclick = async () => {
+      try { await navigator.clipboard.writeText(`${NAMES[id]} results screen:\n\n${s.text}`); btn.textContent = "Copied"; }
+      catch { btn.textContent = "Couldn't copy"; }
+    };
+    li.append(btn);
+    list.append(li);
+  }
+  document.getElementById("screens").hidden = !list.children.length;
+});
+
 chrome.storage.local.get(["results", "lastSeen"], ({ results = {}, lastSeen }) => {
   const done = Object.values(results).filter((e) => e.date === today && MINE.includes(e.game)).length;
   document.getElementById("today").innerHTML = `<b>${done} of ${MINE.length}</b> logged today.`;
