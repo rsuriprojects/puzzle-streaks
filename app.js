@@ -69,6 +69,7 @@ function details(g, e, s, bonuses) {
     rows.push(["Today", `Not played yet. <a href="${gameUrl(g)}" target="_blank" rel="noopener">Play ${g.name}</a>`]);
   }
   rows.push(["Streak", s.n > 0 ? `<b>${s.n}</b> ${s.n === 1 ? "day" : "days"}${!s.playedToday ? ` <span class="sub">(play today to keep it)</span>` : ""}` : "None yet"]);
+  if (e?.badges?.length) rows.push(["Badges", e.badges.map(esc).join(" · ")]);
   if (e?.smarter?.length) rows.push(["Smarter than", e.smarter.map((x) => `<div>${esc(x)}</div>`).join("")]);
   if (e?.puzzle) rows.push(["Puzzle", `#${esc(e.puzzle)}`]);
   for (const b of bonuses) rows.push(["Bonus", `<a class="bonus" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.label)} ↗</a>`]);

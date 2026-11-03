@@ -24,7 +24,56 @@ const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,
 
 const DONE = /you solved|solved in|you won|you did it|puzzle solved|crushing it|come back tomorrow|next puzzle in|see you tomorrow/i;
 
-function parse(game, text) {
+// Your row on the leaderboard: "[medal or 4] [avatar] You  🔥 101-day streak!  0:33".
+// The top 3 get a medal picture instead of a number, so look at the row's
+// images and labels too, and fall back to its position in the list.
+const MEDAL = /\b(?:rank|place|position|medal)\D{0,12}([1-3])\b|\b([1-3])(?:st|nd|rd)\b|(gold|first)|(silver|second)|(bronze|third)/i;
+function yourRow() {
+  const hit = document.evaluate("//*[normalize-space(text())='You']", document.body, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+  if (!hit) return {};
+  let row = hit;
+  for (let k = 0; k < 8 && row.parentElement; k++) {
+    row = row.parentElement;
+    if (row.matches("li, [role='listitem'], tr")) break;
+    if (k >= 2 && /(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
+  }
+  const out = {};
+  const text = row.innerText || "";
+
+  const lead = /^\s*#?(\d{1,3})(?:st|nd|rd|th)?\b/.exec(text);
+  if (lead) out.rank = Number(lead[1]);
+
+  if (!out.rank) {
+    for (const el of [row, ...row.querySelectorAll("*")]) {
+      const bits = [el.getAttribute("alt"), el.getAttribute("aria-label"), el.getAttribute("title"),
+        el.getAttribute("src"), typeof el.className === "string" ? el.className : el.getAttribute("class"),
+        el.tagName === "title" ? el.textContent : null].filter(Boolean).join(" ");
+      const m = MEDAL.exec(bits);
+      if (m) { out.rank = Number(m[1] || m[2]) || (m[3] ? 1 : m[4] ? 2 : 3); break; }
+    }
+  }
+
+  if (!out.rank && row.parentElement) {
+    // Still nothing: the first rows of the list are ranks 1, 2 and 3.
+    const rows = [...row.parentElement.children].filter((el) => el.tagName === row.tagName);
+    const i = rows.indexOf(row);
+    if (i >= 0 && i < 3 && rows.slice(0, i + 1).every((r) => !/^\s*#?\d{1,3}\b/.test(r.innerText))) out.rank = i + 1;
+  }
+
+  // Badges under your name: "🔥 101-day streak!", "No hints", "No redraws"...
+  const badges = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/[^\p{L}\p{N}\s:'’!-]/gu, "").trim().replace(/!$/, "");
+    if (!line || /^you$/i.test(line) || /^#?\d{1,3}$/.test(line) || /^\d{1,2}:[0-5]\d$/.test(line)) continue;
+    const st = /(\d+)[\s-]*day\s+(?:win\s+)?streak/i.exec(line);
+    if (st) { out.streak = Number(st[1]); continue; }
+    if (line.length <= 30) badges.push(line);
+  }
+  if (badges.length) out.badges = [...new Set(badges)];
+  return out;
+}
+
+function parse(game, text, you = {}) {
   if (!DONE.test(text)) return null;
   const out = { solved: true };
 
@@ -50,9 +99,13 @@ function parse(game, text) {
     if (pick) out.secs = Number(pick[1]) * 60 + Number(pick[2]);
   }
 
-  // "106-day win streak!" on the results card.
-  const streak = /(\d+)[\s-]*day\s+(?:win\s+)?streak/i.exec(text);
+  // "106-day win streak!" on the results card, else the badge on your
+  // leaderboard row. Other rows show friends' streaks, so never take the
+  // first "day streak" on the page.
+  const streak = /(\d+)[\s-]*day\s+win\s+streak/i.exec(text);
   if (streak) out.streak = Number(streak[1]);
+  else if (you.streak) out.streak = you.streak;
+  if (you.badges) out.badges = you.badges;
 
   // "Smarter than 75% of CEOs", "Smarter than 60% of Rishis" and the like.
   const smarter = [...text.matchAll(/smarter than\s+(\d{1,3})%\s+of\s+([^\n!.]{1,40})/gi)]
@@ -82,6 +135,8 @@ function parse(game, text) {
       }
     }
   }
+  // Your own leaderboard row is the most reliable source (and the only one for medals).
+  if (you.rank) out.rank = you.rank;
   return out;
 }
 
@@ -165,7 +220,7 @@ async function check() {
     return;
   }
 
-  const parsed = parse(game, text);
+  const parsed = parse(game, text, yourRow());
   if (!parsed) {
     // Only record "watching" once per page, not on every timer tick.
     if (!announced) { announced = true; await chrome.storage.local.set({ lastSeen: { game, at: Date.now() } }); }
