@@ -131,7 +131,17 @@ async function check() {
   if (await save([{ game, data: parsed }])) await chrome.storage.local.set({ lastSeen: seen });
 }
 
+// When the extension is reloaded or updated, scripts already running in open
+// tabs lose access to Chrome and every call throws "Extension context
+// invalidated". Stop watching then; the reloaded tab gets a fresh script.
+const alive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+
 let timer = null;
-const schedule = () => { clearTimeout(timer); timer = setTimeout(check, 800); };
-new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+const observer = new MutationObserver(() => schedule());
+function schedule() {
+  if (!alive()) { observer.disconnect(); clearTimeout(timer); return; }
+  clearTimeout(timer);
+  timer = setTimeout(() => check().catch(() => { if (!alive()) observer.disconnect(); }), 800);
+}
+observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 schedule();
