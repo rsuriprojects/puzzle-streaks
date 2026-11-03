@@ -1,4 +1,5 @@
 // The games you play come first, in your order, then the rest.
+// Colors follow each game's tile on linkedin.com/games.
 const GAMES = [
   { id: "queens", name: "Queens", color: "var(--g-queens)", kind: "time" },
   { id: "zip", name: "Zip", color: "var(--g-zip)", kind: "time" },
@@ -14,9 +15,13 @@ const gameUrl = (g) => `https://www.linkedin.com/games/${g.id}/`;
 // Results come from the extension. The last copy is kept so the page still
 // shows something if the extension is off for a moment.
 let results = {};
+let bonus = null;
 let connected = false;
 let lastSync = null;
+let open = new Set();
 try { results = JSON.parse(localStorage.getItem("results") || "{}"); } catch {}
+try { bonus = JSON.parse(localStorage.getItem("bonus") || "null"); } catch {}
+try { open = new Set(JSON.parse(localStorage.getItem("open") || "[]")); } catch {}
 
 const $ = (id) => document.getElementById(id);
 const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -45,14 +50,29 @@ function streak(gid) {
   }
   return { n: Math.max(n, theirs), playedToday };
 }
-function best(g) {
-  let b = null;
-  for (const e of Object.values(results)) {
-    if (e.game !== g.id) continue;
-    const v = g.kind === "guesses" ? e.guesses : e.secs;
-    if (v != null && (b == null || v < b)) b = v;
+
+const bonusFor = (gid) => (bonus?.date === today() ? bonus.items.filter((b) => b.game === gid) : []);
+
+function details(g, e, s, bonuses) {
+  const rows = [];
+  if (e) {
+    let time = `<b>${esc(result(g, e))}</b>`;
+    if (g.kind === "time" && e.secs != null && e.avg) {
+      const diff = e.avg - e.secs;
+      time += diff > 0 ? ` <span class="sub">${diff}s faster than today's average (${fmtTime(e.avg)})</span>`
+        : diff < 0 ? ` <span class="sub">${-diff}s slower than today's average (${fmtTime(e.avg)})</span>`
+        : ` <span class="sub">right on today's average</span>`;
+    }
+    rows.push([g.kind === "guesses" ? "Result" : "Time", time]);
+    rows.push(["Connections", e.rank ? `<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""}` : `<span class="sub">Not on the results screen yet</span>`]);
+  } else {
+    rows.push(["Today", `Not played yet. <a href="${gameUrl(g)}" target="_blank" rel="noopener">Play ${g.name}</a>`]);
   }
-  return b;
+  rows.push(["Streak", s.n > 0 ? `<b>${s.n}</b> ${s.n === 1 ? "day" : "days"}${!s.playedToday ? ` <span class="sub">(play today to keep it)</span>` : ""}` : "None yet"]);
+  if (e?.smarter?.length) rows.push(["Smarter than", e.smarter.map((x) => `<div>${esc(x)}</div>`).join("")]);
+  if (e?.puzzle) rows.push(["Puzzle", `#${esc(e.puzzle)}`]);
+  for (const b of bonuses) rows.push(["Bonus", `<a class="bonus" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.label)} ↗</a>`]);
+  return `<dl class="details">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
 }
 
 function render() {
@@ -65,28 +85,36 @@ function render() {
     const e = get(t, g.id);
     const s = streak(g.id);
     const risk = s.n > 0 && !s.playedToday;
-    const parts = [];
+    const bonuses = bonusFor(g.id);
+    const isOpen = open.has(g.id);
+
+    let todayText = `<span class="sub">Not played</span>`;
     if (e) {
-      parts.push(`Today <b>${esc(result(g, e))}</b>`);
-      if (e.rank) parts.push(`<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""} among connections`);
-      if (e.beat) parts.push(`Smarter than ${esc(e.beat)}`);
-    } else {
-      parts.push(risk ? "Not played yet. Play today to keep your streak." : "Not played yet");
+      todayText = `<b>${esc(result(g, e))}</b>`;
+      if (e.rank) todayText += `<span class="sep">·</span><b>#${esc(e.rank)}</b>`;
     }
-    const b = best(g);
-    if (b != null) parts.push(`Best <b>${g.kind === "guesses" ? plural(b, "guess") : fmtTime(b)}</b>`);
 
     const li = document.createElement("li");
-    li.className = "game";
+    li.className = "game" + (isOpen ? " open" : "");
+    li.style.setProperty("--game", g.color);
     li.innerHTML = `
       <div class="row">
         <div class="name">
-          <span class="dot" style="background:${g.color}"></span>
+          <span class="dot"></span>
           <a href="${gameUrl(g)}" target="_blank" rel="noopener">${g.name} <span class="arrow">↗</span></a>
+          ${bonuses.length ? `<a class="bonus-tag" href="${esc(bonuses[0].url)}" target="_blank" rel="noopener">Bonus puzzle</a>` : ""}
         </div>
-        <div class="streak${risk ? " risk" : ""}">${s.n > 0 ? `<b>${s.n}</b> day streak` : "No streak"}</div>
+        <div class="today">${todayText}</div>
+        <div class="streak${risk ? " risk" : ""}">${s.n > 0 ? `<b>${s.n}</b> day${s.n === 1 ? "" : "s"}` : "No streak"}</div>
+        <button class="toggle" type="button" aria-expanded="${isOpen}" aria-label="${isOpen ? "Hide" : "Show"} ${g.name} details"><span></span></button>
       </div>
-      <div class="meta">${parts.map((p) => `<span>${p}</span>`).join("")}</div>`;
+      ${isOpen ? details(g, e, s, bonuses) : ""}`;
+    li.querySelector(".row").addEventListener("click", (ev) => {
+      if (ev.target.closest("a")) return;
+      open.has(g.id) ? open.delete(g.id) : open.add(g.id);
+      try { localStorage.setItem("open", JSON.stringify([...open])); } catch {}
+      render();
+    });
     list.append(li);
   }
 
@@ -146,8 +174,12 @@ window.addEventListener("message", (ev) => {
   if (ev.source !== window || ev.data?.source !== "puzzle-streaks-ext") return;
   connected = true;
   results = ev.data.results || {};
+  bonus = ev.data.bonus || null;
   lastSync = Math.max(0, ...Object.values(results).map((e) => e.savedAt || 0)) || null;
-  try { localStorage.setItem("results", JSON.stringify(results)); } catch {}
+  try {
+    localStorage.setItem("results", JSON.stringify(results));
+    localStorage.setItem("bonus", JSON.stringify(bonus));
+  } catch {}
   render();
 });
 window.postMessage({ source: "puzzle-streaks-page", type: "hello" }, location.origin);

@@ -52,9 +52,14 @@ function parse(game, text) {
   const streak = /(\d+)[\s-]*day\s+(?:win\s+)?streak/i.exec(text);
   if (streak) out.streak = Number(streak[1]);
 
-  // "Smarter than 75% of CEOs"
-  const beat = /smarter than\s+(\d+)%\s+of\s+([A-Za-z]+)/i.exec(text);
-  if (beat) out.beat = `${beat[1]}% of ${beat[2]}`;
+  // "Smarter than 75% of CEOs", "Smarter than 60% of Rishis" and the like.
+  const smarter = [...text.matchAll(/smarter than\s+(\d{1,3})%\s+of\s+([^\n!.]{1,40})/gi)]
+    .map((m) => `${m[1]}% of ${m[2].trim()}`);
+  if (smarter.length) out.smarter = [...new Set(smarter)];
+
+  // "Today's avg: 0:16"
+  const avg = /avg:?\s*(\d{1,2}):([0-5]\d)(?![:\d])/i.exec(text);
+  if (avg) out.avg = Number(avg[1]) * 60 + Number(avg[2]);
 
   const rankOf = /#?(\d+)\s+(?:of|out of)\s+(\d+)\s+(?:connections|players|people)/i.exec(text);
   if (rankOf) { out.rank = Number(rankOf[1]); out.of = Number(rankOf[2]); }
@@ -96,7 +101,7 @@ async function save(items) {
     const key = `${date}_${game}`;
     const prev = results[key] || {};
     const next = { ...prev, ...data, game, date };
-    if (Object.keys(next).some((k) => next[k] !== prev[k])) {
+    if (Object.keys(next).some((k) => JSON.stringify(next[k]) !== JSON.stringify(prev[k]))) {
       results[key] = { ...next, savedAt: Date.now() };
       changed = true;
     }
@@ -105,11 +110,41 @@ async function save(items) {
   return changed;
 }
 
+// Bonus puzzles (like a bonus Zip) show up as an extra link or tile.
+// Keep today's list so the site can point to them.
+function findBonus(text, game) {
+  const items = [];
+  for (const a of document.querySelectorAll("a[href]")) {
+    const label = (a.innerText || a.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+    if (!/bonus/i.test(label) || !/linkedin\.com\/games/.test(a.href)) continue;
+    const named = GAMES.find((id) => label.toLowerCase().includes(NAMES[id].toLowerCase()) || a.href.includes(`/games/${id}`));
+    items.push({ game: named || game || "zip", label: label.slice(0, 60), url: a.href });
+  }
+  if (!items.length && game && /bonus (?:puzzle|level|round|game)/i.test(text)) {
+    items.push({ game, label: "Bonus puzzle", url: location.href });
+  }
+  return items;
+}
+
+async function saveBonus(items) {
+  const date = dayKey(new Date());
+  const { bonus } = await chrome.storage.local.get("bonus");
+  const current = bonus?.date === date ? bonus.items : [];
+  const merged = [...current];
+  for (const it of items) if (!merged.some((m) => m.url === it.url)) merged.push(it);
+  if (merged.length !== current.length || bonus?.date !== date) {
+    await chrome.storage.local.set({ bonus: { date, items: merged } });
+  }
+}
+
 let announced = false;
 async function check() {
   if (!document.body) return;
   const text = document.body.innerText || "";
   const game = gameFromUrl();
+
+  const bonus = findBonus(text, game);
+  if (bonus.length) await saveBonus(bonus);
 
   if (!game) {
     const hub = parseHub(text);
