@@ -35,19 +35,26 @@ function parse(game, text) {
     const g = /(?:solved in|in)\s+(\d)\s+guess/i.exec(text) || /(\d)\s*\/\s*5\b/.exec(text);
     if (g) out.guesses = Number(g[1]);
   } else {
-    // A time like 1:24 that isn't part of a countdown like 14:22:05.
+    // A time like 1:24 that isn't part of a countdown like 14:22:05,
+    // and isn't the "Today's avg: 0:16" line.
     const re = /(?<![\d:])(\d{1,2}):([0-5]\d)(?![:\d])/g;
-    const anchor = text.search(/solved|your time|you finished|time/i);
+    const anchor = text.search(/crushing it|solved|your time|you finished/i);
     let pick = null, m;
     while ((m = re.exec(text))) {
+      if (/avg:?\s*$|average:?\s*$/i.test(text.slice(Math.max(0, m.index - 12), m.index))) continue;
       if (!pick || (anchor >= 0 && m.index >= anchor && pick.index < anchor)) pick = m;
       if (anchor >= 0 && m.index >= anchor) break;
     }
     if (pick) out.secs = Number(pick[1]) * 60 + Number(pick[2]);
   }
 
-  const streak = /(\d+)[\s-]*day streak/i.exec(text) || /streak[^\d]{0,20}(\d+)/i.exec(text);
+  // "106-day win streak!" on the results card.
+  const streak = /(\d+)[\s-]*day\s+(?:win\s+)?streak/i.exec(text);
   if (streak) out.streak = Number(streak[1]);
+
+  // "Smarter than 75% of CEOs"
+  const beat = /smarter than\s+(\d+)%\s+of\s+([A-Za-z]+)/i.exec(text);
+  if (beat) out.beat = `${beat[1]}% of ${beat[2]}`;
 
   const rankOf = /#?(\d+)\s+(?:of|out of)\s+(\d+)\s+(?:connections|players|people)/i.exec(text);
   if (rankOf) { out.rank = Number(rankOf[1]); out.of = Number(rankOf[2]); }

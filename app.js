@@ -35,11 +35,15 @@ function streak(gid) {
   const d = new Date();
   const playedToday = !!get(dayKey(d), gid);
   if (!playedToday) d.setDate(d.getDate() - 1);
-  // LinkedIn's own streak count goes back further than our history.
-  const theirs = Number(get(dayKey(d), gid)?.streak) || 0;
-  let n = 0;
-  while (get(dayKey(d), gid)) { n++; d.setDate(d.getDate() - 1); }
-  return { n: n > 0 ? Math.max(n, theirs) : 0, playedToday };
+  // LinkedIn's own streak count goes back further than our history. A count
+  // read k days ago still holds today as that count plus k.
+  let n = 0, theirs = 0, e;
+  while ((e = get(dayKey(d), gid))) {
+    if (e.streak) theirs = Math.max(theirs, Number(e.streak) + n);
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return { n: Math.max(n, theirs), playedToday };
 }
 function best(g) {
   let b = null;
@@ -65,6 +69,7 @@ function render() {
     if (e) {
       parts.push(`Today <b>${esc(result(g, e))}</b>`);
       if (e.rank) parts.push(`<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""} among connections`);
+      if (e.beat) parts.push(`Smarter than ${esc(e.beat)}`);
     } else {
       parts.push(risk ? "Not played yet. Play today to keep your streak." : "Not played yet");
     }
