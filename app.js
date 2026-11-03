@@ -79,6 +79,7 @@ function details(g, e, s, bonuses) {
   if (e?.maxStreak) all.push(`max streak <b>${esc(e.maxStreak)}</b>`);
   if (all.length) rows.push(["All time", all.join(" · ")]);
   if (e?.badges?.length) rows.push(["Badges", e.badges.map(esc).join(" · ")]);
+  if (e?.top?.length) rows.push(["Top", e.top.map((x) => `<div>${esc(x)}</div>`).join("")]);
   if (e?.smarter?.length) rows.push(["Smarter than", e.smarter.map((x) => `<div>${esc(x)}</div>`).join("")]);
   if (e?.puzzle) rows.push(["Puzzle", `#${esc(e.puzzle)}`]);
   for (const b of bonuses) rows.push(["Bonus", `<a class="bonus" href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.label)} ↗</a>`]);

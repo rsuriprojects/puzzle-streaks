@@ -25,63 +25,94 @@ const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,
 const DONE = /you solved|solved in|you won|you did it|puzzle solved|crushing it|come back tomorrow|next puzzle in|see you tomorrow/i;
 
 // Your row on the leaderboard: "[medal or 4] [avatar] You  🔥 101-day streak!  0:33".
-// The top 3 get a medal picture instead of a number, so look at the row's
-// images and labels too, and fall back to its position in the list.
+// Ranks 1-3 are medal pictures with no text, and ties share a rank
+// (1, 1, 2, 3, 4...), so when your row has no number the rank is worked
+// out from the rows around it.
 const MEDAL = /\b(?:rank|place|position|medal)[\s_-]*(?:#|no\.?\s*)?([1-3])\b|\b([1-3])(?:st|nd|rd)\s+place\b|\b(gold)\b|\b(silver)\b|\b(bronze)\b/i;
+const TIME = /(?<![\d:])(\d{1,2}):([0-5]\d)(?![:\d])/;
+const timeOf = (el) => { const m = TIME.exec(el.innerText || ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+const numOf = (el) => { const m = /^\s*#?(\d{1,3})\s*\n/.exec(el.innerText || ""); return m ? Number(m[1]) : null; };
+
 // Your row's markup (minus image URLs), kept so the popup can copy it when a
 // rank isn't read right.
 let rowHtml = "";
-function yourRow() {
-  // LinkedIn wraps text in empty comment and whitespace nodes, so walk the
-  // text nodes themselves and look for one that is exactly "You".
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.nodeValue.trim() === "You" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
-  });
-  const hit = walker.nextNode()?.parentElement;
-  if (!hit) { rowHtml = "(no row with the text \"You\" found)"; return {}; }
-  // Climb to the smallest box that also holds your time (or guesses): that's your row.
+
+function rowFor(hit) {
+  // Climb to the smallest box that also holds a time (or guesses): that's the row.
   let row = hit;
   for (let k = 0; k < 8 && row.parentElement; k++) {
     row = row.parentElement;
     if (row.matches("li, [role='listitem'], tr")) break;
     if (/(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
   }
+  return row;
+}
+
+function rankOf(row, played) {
+  const own = numOf(row);
+  if (own) return own;
+
+  for (const el of [row, ...row.querySelectorAll("*")]) {
+    // Labels and image file names only: class names are full of words like "first".
+    const file = (el.getAttribute("src") || "").split(/[?#]/)[0].split("/").pop();
+    const bits = [el.getAttribute("alt"), el.getAttribute("aria-label"), el.getAttribute("title"),
+      file.replace(/[_-]/g, " "), el.tagName.toLowerCase() === "title" ? el.textContent : null].filter(Boolean).join(" | ");
+    const m = MEDAL.exec(bits);
+    if (m) return Number(m[1] || m[2]) || (m[3] ? 1 : m[4] ? 2 : 3);
+  }
+
+  const mine = timeOf(row);
+  if (mine == null || !row.parentElement) return null;
+  const rows = [...row.parentElement.children].filter((el) => timeOf(el) != null);
+  const i = rows.indexOf(row);
+
+  // Everyone is listed: your rank is 1 + the number of different faster times.
+  if (played && rows.length === played + 1) {
+    return new Set(rows.map(timeOf).filter((t) => t < mine)).size + 1;
+  }
+  // The row under you is numbered: "4 Maahi 0:11" under your 0:10 makes you 3.
+  const next = rows[i + 1];
+  if (next && numOf(next)) return timeOf(next) > mine ? numOf(next) - 1 : numOf(next);
+  // The row above you is numbered.
+  const prev = rows[i - 1];
+  if (prev && numOf(prev)) return timeOf(prev) < mine ? numOf(prev) + 1 : numOf(prev);
+  return null;
+}
+
+function yourRow() {
+  // LinkedIn wraps text in empty comment and whitespace nodes, so walk the
+  // text nodes themselves and look for ones that are exactly "You". The
+  // full leaderboard and the short one under the results can both be open.
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.nodeValue.trim() === "You" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  });
+  const played = Number(/(\d+)\s+connections?\s+played today/i.exec(document.body.innerText || "")?.[1]) || 0;
+  let row = null, rank = null, n;
+  while ((n = walker.nextNode())) {
+    const r = rowFor(n.parentElement);
+    const k = rankOf(r, played);
+    if (!row || (k && !rank)) { row = r; rank = k; }
+    if (rank) break;
+  }
+  if (!row) { rowHtml = "(no row with the text \"You\" found)"; return {}; }
   rowHtml = row.outerHTML.replace(/\s(?:src|srcset|href|style|data-[\w-]+)="[^"]*"/g, "").slice(0, 3000);
+
   const out = {};
+  if (rank) out.rank = rank;
   const text = row.innerText || "";
+  const secs = timeOf(row);
+  if (secs != null) out.secs = secs;
 
-  const lead = /^\s*#?(\d{1,3})(?:st|nd|rd|th)?\b/.exec(text);
-  if (lead) out.rank = Number(lead[1]);
-
-  if (!out.rank) {
-    for (const el of [row, ...row.querySelectorAll("*")]) {
-      // Labels and image file names only: class names are full of words like "first".
-      const file = (el.getAttribute("src") || "").split(/[?#]/)[0].split("/").pop();
-      const bits = [el.getAttribute("alt"), el.getAttribute("aria-label"), el.getAttribute("title"),
-        file.replace(/[_-]/g, " "), el.tagName.toLowerCase() === "title" ? el.textContent : null].filter(Boolean).join(" | ");
-      const m = MEDAL.exec(bits);
-      if (m) { out.rank = Number(m[1] || m[2]) || (m[3] ? 1 : m[4] ? 2 : 3); break; }
-    }
-  }
-
-  if (!out.rank && row.parentElement) {
-    // Still nothing: the first rows of the list are ranks 1, 2 and 3.
-    const rows = [...row.parentElement.children].filter((el) => el.tagName === row.tagName);
-    const i = rows.indexOf(row);
-    if (i >= 0 && i < 3 && rows.slice(0, i + 1).every((r) => !/^\s*#?\d{1,3}\b/.test(r.innerText))) out.rank = i + 1;
-  }
-
-  const t = /(?<![\d:])(\d{1,2}):([0-5]\d)(?![:\d])/.exec(text);
-  if (t) out.secs = Number(t[1]) * 60 + Number(t[2]);
-
-  // Badges under your name: "🔥 101-day streak!", "No hints", "No redraws"...
+  // Badges under your name: "🔥 101-day streak!", "No hints & no redraws!"...
+  // LinkedIn repeats each one with a template copy after it, so keep the
+  // part before the first "!".
   const badges = [];
   for (const raw of text.split("\n")) {
-    const line = raw.replace(/[^\p{L}\p{N}\s:'’!-]/gu, "").trim().replace(/!$/, "");
-    if (!line || /^you$/i.test(line) || /^#?\d{1,3}$/.test(line) || /^\d{1,2}:[0-5]\d$/.test(line)) continue;
+    const line = raw.split("!")[0].replace(/\{:[^}]*\}/g, "").replace(/[^\p{L}\p{N}\s:'’&%-]/gu, "").trim();
+    if (!line || /^you$/i.test(line) || /^#?\d{1,3}$/.test(line) || TIME.test(line) && line.length < 6) continue;
     const st = /(\d+)[\s-]*day\s+(?:win\s+)?streak/i.exec(line);
     if (st) { out.streak = Number(st[1]); continue; }
-    if (line.length <= 30) badges.push(line);
+    if (line.length <= 40) badges.push(line);
   }
   if (badges.length) out.badges = [...new Set(badges)];
   return out;
@@ -124,10 +155,17 @@ function parse(game, text, you = {}) {
   else if (you.streak) out.streak = you.streak;
   if (you.badges) out.badges = you.badges;
 
-  // "Smarter than 75% of CEOs", "Smarter than 60% of Rishis" and the like.
-  const smarter = [...text.matchAll(/smarter than\s+(\d{1,3})%\s+of\s+([^\n!.]{1,40})/gi)]
-    .map((m) => `${m[1]}% of ${m[2].trim()}`);
+  // "Smarter than 75% of CEOs", "Smarter than 50% of Rishis". The page also
+  // holds a template copy ("{:player_rank_percentage}% of {:first_name}") and
+  // a badge version ending in "today", so cut at "{" and drop "today".
+  const smarter = [...text.matchAll(/smarter than\s+(\d{1,3})%\s+of\s+([^\n!.{]{1,40})/gi)]
+    .map((m) => `${m[1]}% of ${m[2].replace(/\s+today\s*$/i, "").trim()}`);
   if (smarter.length) out.smarter = [...new Set(smarter)];
+
+  // "Top 25%" / "of all players", "Top 75%" / "of my connections".
+  const top = [...text.matchAll(/top\s+(\d{1,3})%\s*\n?\s*of\s+(all players|my connections)/gi)]
+    .map((m) => `${m[1]}% of ${m[2].toLowerCase()}`);
+  if (top.length) out.top = [...new Set(top)];
 
   // The stats panel: "101 Plays  100 Win %  0:10 Best score  101 Max streak".
   const stat = (label) => new RegExp(`([\\d:]+)\\s*(?:%\\s*)?\\n?\\s*${label}`, "i").exec(text)?.[1];
