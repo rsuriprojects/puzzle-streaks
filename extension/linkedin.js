@@ -71,7 +71,7 @@ function parse(game, text) {
     // Leaderboard rows read like "3 / You / 0:45": find your row and the
     // number just above it (or at the start of the same line).
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const isYou = (l) => /^you(?![’'a-z])/i.test(l) || /\(you\)/i.test(l);
+    const isYou = (l) => /^(?:#?\d{1,3}[.)]?\s+)?you(?![’'a-z])/i.test(l) || /\(you\)/i.test(l);
     const i = lines.findIndex(isYou);
     if (i >= 0) {
       const same = /^#?(\d{1,3})(?:st|nd|rd|th)?[\s.)]+/.exec(lines[i]);
