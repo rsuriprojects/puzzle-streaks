@@ -27,7 +27,7 @@ const DONE = /you solved|solved in|you won|you did it|puzzle solved|crushing it|
 // Your row on the leaderboard: "[medal or 4] [avatar] You  🔥 101-day streak!  0:33".
 // The top 3 get a medal picture instead of a number, so look at the row's
 // images and labels too, and fall back to its position in the list.
-const MEDAL = /\b(?:rank|place|position|medal)\D{0,12}([1-3])\b|\b([1-3])(?:st|nd|rd)\b|(gold|first)|(silver|second)|(bronze|third)/i;
+const MEDAL = /\b(?:rank|place|position|medal)[\s_-]*(?:#|no\.?\s*)?([1-3])\b|\b([1-3])(?:st|nd|rd)\s+place\b|\b(gold)\b|\b(silver)\b|\b(bronze)\b/i;
 // Your row's markup (minus image URLs), kept so the popup can copy it when a
 // rank isn't read right.
 let rowHtml = "";
@@ -55,9 +55,10 @@ function yourRow() {
 
   if (!out.rank) {
     for (const el of [row, ...row.querySelectorAll("*")]) {
+      // Labels and image file names only: class names are full of words like "first".
+      const file = (el.getAttribute("src") || "").split(/[?#]/)[0].split("/").pop();
       const bits = [el.getAttribute("alt"), el.getAttribute("aria-label"), el.getAttribute("title"),
-        el.getAttribute("src"), typeof el.className === "string" ? el.className : el.getAttribute("class"),
-        el.tagName === "title" ? el.textContent : null].filter(Boolean).join(" ");
+        file.replace(/[_-]/g, " "), el.tagName.toLowerCase() === "title" ? el.textContent : null].filter(Boolean).join(" | ");
       const m = MEDAL.exec(bits);
       if (m) { out.rank = Number(m[1] || m[2]) || (m[3] ? 1 : m[4] ? 2 : 3); break; }
     }
