@@ -1,15 +1,13 @@
-// The games you play, in your order. OTHER_GAMES only get a link.
+// The games you play come first, in your order, then the rest.
 const GAMES = [
   { id: "queens", name: "Queens", color: "var(--g-queens)", kind: "time" },
   { id: "zip", name: "Zip", color: "var(--g-zip)", kind: "time" },
   { id: "pinpoint", name: "Pinpoint", color: "var(--g-pinpoint)", kind: "guesses" },
   { id: "wend", name: "Wend", color: "var(--g-wend)", kind: "time" },
   { id: "patches", name: "Patches", color: "var(--g-patches)", kind: "time" },
-];
-const OTHER_GAMES = [
-  { id: "tango", name: "Tango" },
-  { id: "mini-sudoku", name: "Mini Sudoku" },
-  { id: "crossclimb", name: "Crossclimb" },
+  { id: "tango", name: "Tango", color: "var(--g-tango)", kind: "time" },
+  { id: "mini-sudoku", name: "Mini Sudoku", color: "var(--g-sudoku)", kind: "time" },
+  { id: "crossclimb", name: "Crossclimb", color: "var(--g-crossclimb)", kind: "time" },
 ];
 const gameUrl = (g) => `https://www.linkedin.com/games/${g.id}/`;
 
@@ -86,9 +84,6 @@ function render() {
       <div class="meta">${parts.map((p) => `<span>${p}</span>`).join("")}</div>`;
     list.append(li);
   }
-
-  $("others").innerHTML = "Also on LinkedIn: " + OTHER_GAMES
-    .map((g) => `<a href="${gameUrl(g)}" target="_blank" rel="noopener">${g.name}</a>`).join(", ");
 
   const done = GAMES.filter((g) => get(t, g.id));
   const ranks = done.map((g) => Number(get(t, g.id).rank)).filter(Boolean);
