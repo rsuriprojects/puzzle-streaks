@@ -64,11 +64,20 @@ function details(g, e, s, bonuses) {
         : ` <span class="sub">right on today's average</span>`;
     }
     rows.push([g.kind === "guesses" ? "Result" : "Time", time]);
-    rows.push(["Connections", e.rank ? `<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""}` : `<span class="sub">Not on the results screen yet</span>`]);
+    const played = e.played ? ` <span class="sub">${esc(e.played)} ${e.played === 1 ? "connection" : "connections"} played today</span>` : "";
+    rows.push(["Connections", e.rank ? `<b>#${esc(e.rank)}</b>${e.of ? ` of ${esc(e.of)}` : ""}${played}` : `<span class="sub">Rank not read yet</span>${played}`]);
   } else {
     rows.push(["Today", `Not played yet. <a href="${gameUrl(g)}" target="_blank" rel="noopener">Play ${g.name}</a>`]);
   }
   rows.push(["Streak", s.n > 0 ? `<b>${s.n}</b> ${s.n === 1 ? "day" : "days"}${!s.playedToday ? ` <span class="sub">(play today to keep it)</span>` : ""}` : "None yet"]);
+  if (e?.freezes != null) rows.push(["Streak freezes", `<b>${esc(e.freezes)}</b> ready`]);
+  // LinkedIn's all-time numbers from the stats panel under the results.
+  const all = [];
+  if (e?.plays) all.push(`<b>${esc(e.plays)}</b> plays`);
+  if (e?.winPct != null) all.push(`<b>${esc(e.winPct)}%</b> wins`);
+  if (e?.best != null) all.push(`best <b>${g.kind === "guesses" ? esc(plural(e.best, "guess")) : fmtTime(e.best)}</b>`);
+  if (e?.maxStreak) all.push(`max streak <b>${esc(e.maxStreak)}</b>`);
+  if (all.length) rows.push(["All time", all.join(" · ")]);
   if (e?.badges?.length) rows.push(["Badges", e.badges.map(esc).join(" · ")]);
   if (e?.smarter?.length) rows.push(["Smarter than", e.smarter.map((x) => `<div>${esc(x)}</div>`).join("")]);
   if (e?.puzzle) rows.push(["Puzzle", `#${esc(e.puzzle)}`]);

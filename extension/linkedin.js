@@ -32,13 +32,19 @@ const MEDAL = /\b(?:rank|place|position|medal)\D{0,12}([1-3])\b|\b([1-3])(?:st|n
 // rank isn't read right.
 let rowHtml = "";
 function yourRow() {
-  const hit = document.evaluate("//*[normalize-space(text())='You']", document.body, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+  // LinkedIn wraps text in empty comment and whitespace nodes, so walk the
+  // text nodes themselves and look for one that is exactly "You".
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.nodeValue.trim() === "You" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+  });
+  const hit = walker.nextNode()?.parentElement;
   if (!hit) { rowHtml = "(no row with the text \"You\" found)"; return {}; }
+  // Climb to the smallest box that also holds your time (or guesses): that's your row.
   let row = hit;
   for (let k = 0; k < 8 && row.parentElement; k++) {
     row = row.parentElement;
     if (row.matches("li, [role='listitem'], tr")) break;
-    if (k >= 2 && /(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
+    if (/(?<![\d:])\d{1,2}:[0-5]\d(?![:\d])|\bguess|\bclue/i.test(row.innerText)) break;
   }
   rowHtml = row.outerHTML.replace(/\s(?:src|srcset|href|style|data-[\w-]+)="[^"]*"/g, "").slice(0, 3000);
   const out = {};
@@ -64,6 +70,9 @@ function yourRow() {
     if (i >= 0 && i < 3 && rows.slice(0, i + 1).every((r) => !/^\s*#?\d{1,3}\b/.test(r.innerText))) out.rank = i + 1;
   }
 
+  const t = /(?<![\d:])(\d{1,2}):([0-5]\d)(?![:\d])/.exec(text);
+  if (t) out.secs = Number(t[1]) * 60 + Number(t[2]);
+
   // Badges under your name: "🔥 101-day streak!", "No hints", "No redraws"...
   const badges = [];
   for (const raw of text.split("\n")) {
@@ -78,7 +87,9 @@ function yourRow() {
 }
 
 function parse(game, text, you = {}) {
-  if (!DONE.test(text)) return null;
+  // The leaderboard can sit in a different part of the page than the
+  // "You're crushing it!" card, so your row alone is enough to go on.
+  if (!DONE.test(text) && !you.rank) return null;
   const out = { solved: true };
 
   const num = new RegExp(`${NAMES[game]}\\s*(?:no\\.\\s*)?#\\s*(\\d+)`, "i").exec(text);
@@ -100,7 +111,8 @@ function parse(game, text, you = {}) {
       if (!pick || (anchor >= 0 && m.index >= anchor && pick.index < anchor)) pick = m;
       if (anchor >= 0 && m.index >= anchor) break;
     }
-    if (pick) out.secs = Number(pick[1]) * 60 + Number(pick[2]);
+    if (you.secs != null) out.secs = you.secs;
+    else if (pick && DONE.test(text)) out.secs = Number(pick[1]) * 60 + Number(pick[2]);
   }
 
   // "106-day win streak!" on the results card, else the badge on your
@@ -115,6 +127,20 @@ function parse(game, text, you = {}) {
   const smarter = [...text.matchAll(/smarter than\s+(\d{1,3})%\s+of\s+([^\n!.]{1,40})/gi)]
     .map((m) => `${m[1]}% of ${m[2].trim()}`);
   if (smarter.length) out.smarter = [...new Set(smarter)];
+
+  // The stats panel: "101 Plays  100 Win %  0:10 Best score  101 Max streak".
+  const stat = (label) => new RegExp(`([\\d:]+)\\s*(?:%\\s*)?\\n?\\s*${label}`, "i").exec(text)?.[1];
+  const plays = stat("Plays"), win = stat("Win\\s*%"), bestScore = stat("Best score"), maxStreak = stat("Max streak");
+  if (plays) out.plays = Number(plays);
+  if (win) out.winPct = Number(win);
+  if (bestScore) out.best = bestScore.includes(":") ? bestScore.split(":").reduce((m, s) => m * 60 + Number(s), 0) : Number(bestScore);
+  if (maxStreak) out.maxStreak = Number(maxStreak);
+  const freezes = /(\d+)\s+streak freezes?\s+ready/i.exec(text);
+  if (freezes) out.freezes = Number(freezes[1]);
+
+  // "3 connections played today"
+  const played = /(\d+)\s+connections?\s+played today/i.exec(text);
+  if (played) out.played = Number(played[1]);
 
   // "Today's avg: 0:16"
   const avg = /avg:?\s*(\d{1,2}):([0-5]\d)(?![:\d])/i.exec(text);
